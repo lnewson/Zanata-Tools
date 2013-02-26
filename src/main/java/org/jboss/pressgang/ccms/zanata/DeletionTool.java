@@ -3,7 +3,6 @@ package org.jboss.pressgang.ccms.zanata;
 import javax.ws.rs.core.Response;
 import java.io.IOException;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -65,8 +64,9 @@ public class DeletionTool {
     private final IFixedCopyTransResource copyTransResource;
     private final PressGangCCMSProxyFactoryV1 pressGangProxyFactory;
     private final List<LocaleId> locales;
+    private final Set<String> ignoreZanataIds = new HashSet<String>();
 
-    public DeletionTool() throws URISyntaxException, InvalidParameterException, InternalProcessingException {
+    public DeletionTool() throws Exception {
         if (!checkEnvironment()) {
             throw new IllegalStateException("The system variables have not been set for PressGang and Zanata.");
         }
@@ -150,6 +150,54 @@ public class DeletionTool {
         log.info("Locales: " + CollectionUtilities.toSeperatedString(localeIds, ", "));
 
         return localeIds;
+    }
+
+    public void addContentSpecToIgnoreList(Integer contentSpecId, Integer revision) throws Exception {
+        final RESTTopicV1 contentspec;
+        if (revision != null) {
+            contentspec = pressGangProxyFactory.getRESTClient().getJSONTopicRevision(contentSpecId, revision, "");
+        } else {
+            contentspec = pressGangProxyFactory.getRESTClient().getJSONTopic(contentSpecId, "");
+        }
+
+        final ContentSpecParser parser = new ContentSpecParser(PRESSGANG_SERVER);
+        parser.parse(contentspec.getXml());
+
+        final RESTTopicCollectionV1 topics;
+
+        // Create the query to get the latest topics
+        final List<Integer> topicIds = parser.getReferencedLatestTopicIds();
+        if (topicIds != null && !topicIds.isEmpty()) {
+            final RESTTopicQueryBuilderV1 topicQueryBuilder = new RESTTopicQueryBuilderV1();
+            topicQueryBuilder.setTopicIds(topicIds);
+
+            // Create the expand string
+            final ExpandDataTrunk expand = new ExpandDataTrunk();
+            final ExpandDataTrunk expandTopics = new ExpandDataTrunk(new ExpandDataDetails("topics"));
+            expand.setBranches(Arrays.asList(expandTopics));
+            final String expandString = mapper.writeValueAsString(expand);
+
+            // Get the latest topics
+            topics = pressGangProxyFactory.getRESTClient().getJSONTopicsWithQuery(topicQueryBuilder.buildQueryPath(), expandString);
+        } else {
+            topics = new RESTTopicCollectionV1();
+        }
+
+        // Get the revision topics
+        final List<Pair<Integer, Integer>> revTopicIds = parser.getReferencedRevisionTopicIds();
+        for (final Pair<Integer, Integer> revTopicId : revTopicIds) {
+            final RESTTopicV1 revTopic = pressGangProxyFactory.getRESTClient().getJSONTopicRevision(revTopicId.getFirst(),
+                    revTopicId.getSecond(), "");
+            topics.addItem(revTopic);
+        }
+
+        // Add the content spec itself to be deleted
+        topics.addItem(contentspec);
+
+        // Create the set of topic zanata ids to ignore
+        for (final RESTTopicV1 topic : topics.returnItems()) {
+            ignoreZanataIds.add(topic.getId() + "-" + topic.getRevision());
+        }
     }
 
     /**
@@ -342,17 +390,22 @@ public class DeletionTool {
             final Set<String> processedZanataIds) {
         boolean error = false;
         for (final String zanataId : zanataIds) {
-            boolean topicError = false;
-            for (final LocaleId localeId : locales) {
-                if (!deleteZanataTranslatedDocument(zanataId, localeId)) {
-                    topicError = true;
+            // Check if the
+            if (!ignoreZanataIds.contains(zanataId)) {
+                boolean topicError = false;
+                for (final LocaleId localeId : locales) {
+                    if (!deleteZanataTranslatedDocument(zanataId, localeId)) {
+                        topicError = true;
+                    }
                 }
-            }
 
-            if (topicError) {
-                error = true;
+                if (topicError) {
+                    error = true;
+                } else {
+                    processedZanataIds.add(zanataId);
+                }
             } else {
-                processedZanataIds.add(zanataId);
+                log.info("Ignoring Zanata Translation " + zanataId);
             }
         }
 
