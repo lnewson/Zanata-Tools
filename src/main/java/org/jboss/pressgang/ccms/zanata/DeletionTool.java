@@ -474,6 +474,7 @@ public class DeletionTool {
         ClientResponse<String> response = null;
         try {
             copyTransResource.startCopyTrans(ZANATA_PROJECT, ZANATA_VERSION, zanataId, ZANATA_USERNAME, ZANATA_TOKEN);
+            performZanataRESTCallWaiting();
 
             while (!isCopyTransCompleteForSourceDocument(zanataId)) {
                 // Sleep for 1 second
@@ -503,6 +504,7 @@ public class DeletionTool {
     protected boolean isCopyTransCompleteForSourceDocument(final String zanataId) {
         CopyTransStatus status = copyTransResource.getCopyTransStatus(ZANATA_PROJECT, ZANATA_VERSION, zanataId, ZANATA_USERNAME,
                 ZANATA_TOKEN);
+        performZanataRESTCallWaiting();
         return status.getPercentageComplete() >= 100;
     }
 
