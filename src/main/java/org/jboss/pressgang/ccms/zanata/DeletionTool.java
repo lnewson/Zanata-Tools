@@ -6,7 +6,9 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import com.redhat.contentspec.processor.ContentSpecParser;
 import org.codehaus.jackson.map.ObjectMapper;
@@ -289,15 +291,33 @@ public class DeletionTool {
             return false;
         }
 
+        // Create the set of topic zanata ids
+        final Set<String> topicZanataIds = new HashSet<String>();
+        for (final RESTTopicV1 topic : topics.returnItems()) {
+            topicZanataIds.add(topic.getId() + "-" + topic.getRevision());
+        }
+
+        return deleteAndCopyTransForTopics(topicZanataIds, locales);
+    }
+
+    /**
+     * Deletes all translated documents and runs copytrans to re-populate the translated data.
+     *
+     * @param zanataIds The collection of Zanata Document Ids to be deleted and re-populated.
+     * @param locales   The locales of the translated documents to be deleted.
+     * @return True if the topics were processed successfully otherwise false.
+     */
+    public boolean deleteAndCopyTransForTopics(final Set<String> zanataIds, final List<LocaleId> locales) {
+
         // Delete all the translation documents from zanata
-        final RESTTopicCollectionV1 processedTopics = new RESTTopicCollectionV1();
+        final Set<String> processedZanataIds = new HashSet<String>();
         boolean error = false;
-        if (!deleteZanataTranslatedDocuments(topics, locales, processedTopics)) {
+        if (!deleteZanataTranslatedDocuments(zanataIds, locales, processedZanataIds)) {
             error = true;
         }
 
         // run copy trans on the source documents to recreate the translated documents
-        if (!runCopyTransForZanataSourceDocuments(processedTopics)) {
+        if (!runCopyTransForZanataSourceDocuments(processedZanataIds)) {
             error = true;
         }
 
@@ -307,17 +327,18 @@ public class DeletionTool {
     /**
      * Delete the Translated Documents from Zanata for a set of topics and relevant locales.
      *
-     * @param topics  The collection of topics to delete the translations for.
-     * @param locales The locales of the translated documents that should be deleted.
+     * @param zanataIds          The collection of zanata document ids to delete the translations for.
+     * @param locales            The locales of the translated documents that should be deleted.
+     * @param processedZanataIds A collection of zanata ids to add successfully processed zanata document ids to.
      * @return True if all of the translated documents are successfully deleted otherwise false.
      */
-    protected boolean deleteZanataTranslatedDocuments(final RESTTopicCollectionV1 topics, final List<LocaleId> locales,
-            final RESTTopicCollectionV1 processedTopics) {
+    protected boolean deleteZanataTranslatedDocuments(final Set<String> zanataIds, final List<LocaleId> locales,
+            final Set<String> processedZanataIds) {
         boolean error = false;
-        for (final RESTTopicV1 topic : topics.returnItems()) {
+        for (final String zanataId : zanataIds) {
             boolean topicError = false;
             for (final LocaleId localeId : locales) {
-                if (!deleteZanataTranslatedDocument(topic, localeId)) {
+                if (!deleteZanataTranslatedDocument(zanataId, localeId)) {
                     topicError = true;
                 }
             }
@@ -325,7 +346,7 @@ public class DeletionTool {
             if (topicError) {
                 error = true;
             } else {
-                processedTopics.addItem(topic);
+                processedZanataIds.add(zanataId);
             }
         }
 
@@ -333,14 +354,13 @@ public class DeletionTool {
     }
 
     /**
-     * Delete a Translated Document from zanata for a specific topic and locale.
+     * Delete a Translated Document from zanata for a specific document and locale.
      *
-     * @param topic    The topic that represents the Source Document in Zanata.
+     * @param zanataId The id of the translated document to be deleted.
      * @param localeId The locale of the translated document to be deleted.
      * @return True if the document was deleted successfully, otherwise false.
      */
-    protected boolean deleteZanataTranslatedDocument(final RESTTopicV1 topic, LocaleId localeId) {
-        String zanataId = topic.getId() + "-" + topic.getRevision();
+    protected boolean deleteZanataTranslatedDocument(final String zanataId, LocaleId localeId) {
         log.info("Deleting Zanata Translation " + zanataId + " " + localeId.toString());
         ClientResponse<String> response = null;
         try {
@@ -369,13 +389,13 @@ public class DeletionTool {
     /**
      * Run CopyTrans against a set of topics.
      *
-     * @param topics The collection of topics to run copytrans for.
+     * @param zanataIds The collection of topics to run copytrans for.
      * @return True if copytrans runs fine for all topics otherwise false.
      */
-    protected boolean runCopyTransForZanataSourceDocuments(RESTTopicCollectionV1 topics) {
+    protected boolean runCopyTransForZanataSourceDocuments(final Set<String> zanataIds) {
         boolean error = false;
-        for (final RESTTopicV1 topic : topics.returnItems()) {
-            if (!runCopyTransForZanataSourceDocument(topic)) {
+        for (final String zanataId : zanataIds) {
+            if (!runCopyTransForZanataSourceDocument(zanataId)) {
                 error = true;
             }
         }
@@ -386,11 +406,10 @@ public class DeletionTool {
     /**
      * Run copy trans against a Source Document in zanata and then wait for it to complete
      *
-     * @param topic The topic to run copytrans for.
+     * @param zanataId The id of the document to run copytrans for.
      * @return True if copytrans was run successfully, otherwise false.
      */
-    protected boolean runCopyTransForZanataSourceDocument(RESTTopicV1 topic) {
-        String zanataId = topic.getId() + "-" + topic.getRevision();
+    protected boolean runCopyTransForZanataSourceDocument(final String zanataId) {
         log.info("Running Zanata CopyTrans for " + zanataId);
 
         ClientResponse<String> response = null;
@@ -422,7 +441,7 @@ public class DeletionTool {
      * @param zanataId The Source Document id.
      * @return True if the source document has finished processing otherwise false.
      */
-    protected boolean isCopyTransCompleteForSourceDocument(String zanataId) {
+    protected boolean isCopyTransCompleteForSourceDocument(final String zanataId) {
         CopyTransStatus status = copyTransResource.getCopyTransStatus(ZANATA_PROJECT, ZANATA_VERSION, zanataId, ZANATA_USERNAME,
                 ZANATA_TOKEN);
         return status.getPercentageComplete() >= 100;
