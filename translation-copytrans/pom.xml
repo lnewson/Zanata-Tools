@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.jboss.pressgang.ccms.zanata</groupId>
+    <artifactId>translation-copytrans</artifactId>
+    <version>1.5-SNAPSHOT</version>
+
+    <parent>
+        <groupId>org.jboss.pressgang</groupId>
+        <artifactId>pressgang-parent</artifactId>
+        <version>1.6</version>
+    </parent>
+
+    <properties>
+        <pressgang.version>1.5-SNAPSHOT</pressgang.version>
+        <jcommander.version>1.24</jcommander.version>
+        <slf4j.version>1.6.4</slf4j.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.jboss.pressgang.ccms</groupId>
+            <artifactId>pressgang-ccms-contentspec</artifactId>
+            <version>${pressgang.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.pressgang.ccms</groupId>
+            <artifactId>rest-provider</artifactId>
+            <version>${pressgang.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.pressgang.ccms</groupId>
+            <artifactId>jcommander-pressgang</artifactId>
+            <version>${jcommander.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-log4j12</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
