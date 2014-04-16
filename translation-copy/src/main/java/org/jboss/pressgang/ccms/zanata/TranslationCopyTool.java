@@ -52,12 +52,16 @@ public class TranslationCopyTool implements IVariableArity {
     @Parameter(names = "--langs", description = "A comma separated list of zanata locales to copy translations for")
     private String locales;
 
-    @Parameter(names = "--old-contentspecs", variableArity = true, description = "A list of old content spec zanata ids to get the " +
-            "translations from")
+    @Parameter(names = "--old-contentspecs", variableArity = true,
+            description = "A list of old content spec zanata ids to get the " + "translations from")
     private List<String> oldContentSpecs = Lists.newLinkedList();
 
     @Parameter(names = "--overwrite", description = "Overwrite any existing translations")
     private Boolean overwrite = false;
+
+    @Parameter(names = "--disable-ssl-cert",
+            description = "Disable the SSL Certificate verification. Note: Extreme care should be taken " + "using this option.")
+    private Boolean disableSSLCert = false;
 
     private ZanataInterface zanataInterface;
     private RESTProviderFactory providerFactory;
@@ -75,7 +79,8 @@ public class TranslationCopyTool implements IVariableArity {
 
         // validate the languages used
         log.info("Locales: " + CollectionUtilities.toSeperatedString(localeIds, ", "));
-        Utilities.validateLanguages(providerFactory.getProvider(ServerSettingsProvider.class).getServerSettings(), locales.split("\\s*,\\s*"));
+        Utilities.validateLanguages(providerFactory.getProvider(ServerSettingsProvider.class).getServerSettings(),
+                locales.split("\\s*,\\s*"));
 
         // Check to make sure we have a content spec to copy translations to
         if (!validateContentSpecId()) {
@@ -95,8 +100,8 @@ public class TranslationCopyTool implements IVariableArity {
             // If the old content spec list is empty, then get the previous pushed content spec
             if (oldContentSpecs.isEmpty()) {
                 try {
-                    final TranslatedContentSpecWrapper translatedContentSpec = EntityUtilities.getClosestTranslatedContentSpecById(providerFactory,
-                            contentSpecId, pushedContentSpec.getContentSpecRevision() - 1);
+                    final TranslatedContentSpecWrapper translatedContentSpec = EntityUtilities.getClosestTranslatedContentSpecById(
+                            providerFactory, contentSpecId, pushedContentSpec.getContentSpecRevision() - 1);
                     oldContentSpecs.add(translatedContentSpec.getZanataId());
                 } catch (NotFoundException e) {
                     log.error("The content spec has no previous translations available");
@@ -112,14 +117,16 @@ public class TranslationCopyTool implements IVariableArity {
             final Map<String, String> mappedZanataIds = collectOldIds(zanataIds);
 
             // Copy the translations
-            copyTranslations(mappedZanataIds);
+            copyTranslations(mappedZanataIds, localeIds);
         } else {
             log.error("No translations available for content spec {}", contentSpecId);
         }
     }
 
     /**
-     * @return true if all environment variables were set, false otherwise
+     * Checks to make sure the required environment variables were set.
+     *
+     * @return true if all environment variables were set, otherwise false
      */
     private boolean checkEnvironment() {
         log.info("PressGang REST: " + PRESSGANG_SERVER);
@@ -144,6 +151,9 @@ public class TranslationCopyTool implements IVariableArity {
         return true;
     }
 
+    /**
+     * Initialise the components required to copy the translations for a content spec.
+     */
     private void init() {
         // Initialise the PressGang provider factory
         providerFactory = RESTProviderFactory.create(PRESSGANG_SERVER);
@@ -159,9 +169,10 @@ public class TranslationCopyTool implements IVariableArity {
         }
         log.info("Rate Limiting: " + zanataRESTCallInterval + " seconds per REST call");
         try {
-            zanataInterface = new ZanataInterface(zanataRESTCallInterval);
+            zanataInterface = new ZanataInterface(zanataRESTCallInterval, disableSSLCert);
         } catch (UnauthorizedException e) {
             log.error("Invalid Zanata credentials!");
+            System.exit(-1);
         }
 
         // If the locales are empty then use all the locales configured on the server
@@ -183,6 +194,11 @@ public class TranslationCopyTool implements IVariableArity {
         }
     }
 
+    /**
+     * Make sure the user input a content spec to copy translations for.
+     *
+     * @return True if the user entered information is enough, otherwise false.
+     */
     protected boolean validateContentSpecId() {
         if (ids.isEmpty()) {
             log.error("No ID specified!");
@@ -195,6 +211,12 @@ public class TranslationCopyTool implements IVariableArity {
         }
     }
 
+    /**
+     * Collects all the old content spec Zanata Document Ids and maps them to their new Zanata Document Ids.
+     *
+     * @param contentSpecZanataIds The list of new content spec Zanata Document Ids.
+     * @return A map of old zanata document ids to new document ids.
+     */
     protected Map<String, String> collectOldIds(final Set<String> contentSpecZanataIds) {
         final Map<String, String> retValue = new LinkedHashMap<String, String>();
 
@@ -209,11 +231,15 @@ public class TranslationCopyTool implements IVariableArity {
             final TranslatedContentSpecWrapper pushedContentSpec = EntityUtilities.getTranslatedContentSpecById(providerFactory,
                     contentSpecId, contentSpecRevision);
 
-            log.info("Getting the Zanata document ids for content spec {}", pushedContentSpec.getZanataId());
-            oldZanataIds.addAll(Utilities.getZanataIds(providerFactory, pushedContentSpec));
+            if (pushedContentSpec != null) {
+                log.info("Getting the Zanata document ids for content spec {}", pushedContentSpec.getZanataId());
+                oldZanataIds.addAll(Utilities.getZanataIds(providerFactory, pushedContentSpec));
+            } else {
+                log.error("Skipping content spec {} as their are no translations available", contentSpecId);
+            }
         }
 
-        // 2. Break the Zanata Ids up based on their topic id
+        // 2. Break the Zanata Ids up based on their id
         final Map<String, Set<String>> oldZanataIdMap = new HashMap<String, Set<String>>();
         for (final String oldZanataId : oldZanataIds) {
             final String[] zanataNameSplit = oldZanataId.split("-");
@@ -252,7 +278,13 @@ public class TranslationCopyTool implements IVariableArity {
         return retValue;
     }
 
-    protected void copyTranslations(final Map<String, String> mappedZanataIds) {
+    /**
+     * Copy the translations from an old source into a new source for all the locales.
+     *
+     * @param mappedZanataIds The mapping of old zanata document ids to their new document ids.
+     * @param localeIds       The locales to copy translations for.
+     */
+    protected void copyTranslations(final Map<String, String> mappedZanataIds, final List<LocaleId> localeIds) {
         for (final Map.Entry<String, String> entry : mappedZanataIds.entrySet()) {
             final String oldZanataId = entry.getKey();
             final String newZanataId = entry.getValue();
@@ -266,6 +298,13 @@ public class TranslationCopyTool implements IVariableArity {
         }
     }
 
+    /**
+     * Copy a specific translation for a document from it's old file into the new file.
+     *
+     * @param oldZanataId The old Zanata Document Id.
+     * @param newZanataId The new Zanata Document Id.
+     * @param locale
+     */
     protected void copyTranslation(final String oldZanataId, final String newZanataId, final LocaleId locale) {
         log.info("\tCopying translations for locale {}", locale.toString());
         // Get the old version
@@ -281,6 +320,14 @@ public class TranslationCopyTool implements IVariableArity {
         }
     }
 
+    /**
+     * Push a translation resource using the Zanata REST API.
+     *
+     * @param id       The Zanata Document Id to push to.
+     * @param locale   The locale to push the translation for.
+     * @param resource The {@link TranslationsResource} object that contains the translations for the source strings.
+     * @return True if the translations were pushed successfully, otherwise false.
+     */
     protected boolean pushTranslation(final String id, final LocaleId locale, final TranslationsResource resource) {
         ClientResponse<String> response = null;
         try {

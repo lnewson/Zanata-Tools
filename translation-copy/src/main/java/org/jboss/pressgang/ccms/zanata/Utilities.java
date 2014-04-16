@@ -219,7 +219,7 @@ public class Utilities {
             final int percent = Math.round(current / total * 100);
             if (percent - lastPercent >= showPercent) {
                 lastPercent = percent;
-                log.info(String.format("\tDownloading content spec topic information %d%% Done", percent));
+                log.info(String.format("\tDownloading content spec information %d%% Done", percent));
             }
         }
 
