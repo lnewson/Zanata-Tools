@@ -228,7 +228,7 @@ public class TranslationCopyTool implements IVariableArity {
             final Integer contentSpecId = Integer.parseInt(zanataNameSplit[0]);
             final Integer contentSpecRevision = zanataNameSplit.length > 1 ? Integer.parseInt(zanataNameSplit[1]) : null;
 
-            final TranslatedContentSpecWrapper pushedContentSpec = EntityUtilities.getTranslatedContentSpecById(providerFactory,
+            final TranslatedContentSpecWrapper pushedContentSpec = EntityUtilities.getClosestTranslatedContentSpecById(providerFactory,
                     contentSpecId, contentSpecRevision);
 
             if (pushedContentSpec != null) {
