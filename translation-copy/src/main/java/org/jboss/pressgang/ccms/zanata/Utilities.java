@@ -21,6 +21,7 @@ import org.jboss.pressgang.ccms.utils.common.CollectionUtilities;
 import org.jboss.pressgang.ccms.utils.structures.Pair;
 import org.jboss.pressgang.ccms.wrapper.CSInfoNodeWrapper;
 import org.jboss.pressgang.ccms.wrapper.CSNodeWrapper;
+import org.jboss.pressgang.ccms.wrapper.LocaleWrapper;
 import org.jboss.pressgang.ccms.wrapper.ServerSettingsWrapper;
 import org.jboss.pressgang.ccms.wrapper.TopicWrapper;
 import org.jboss.pressgang.ccms.wrapper.TranslatedCSNodeWrapper;
@@ -173,10 +174,11 @@ public class Utilities {
      *
      * @param providerFactory
      * @param translatedContentSpec
+     * @param latestTranslation     Whether or not the translated content spec is the latest available translation or not.
      * @return The Set of Zanata IDs that represent the content specs and topics.
      */
     public static Set<String> getZanataIds(final DataProviderFactory providerFactory,
-            final TranslatedContentSpecWrapper translatedContentSpec) {
+            final TranslatedContentSpecWrapper translatedContentSpec, boolean latestTranslation) {
         final TopicProvider topicProvider = providerFactory.getProvider(TopicProvider.class);
         final Set<String> zanataIds = new LinkedHashSet<String>();
 
@@ -195,7 +197,7 @@ public class Utilities {
             // Make sure the node is a topic
             if (EntityUtilities.isNodeATopic(csNode)) {
                 final TranslatedTopicWrapper pushedTopic = getTranslatedTopic(topicProvider, csNode.getEntityId(),
-                        csNode.getEntityRevision(), translatedCSNode);
+                        csNode.getEntityRevision(), translatedCSNode, latestTranslation);
 
                 // If a pushed topic was found then add it
                 if (pushedTopic != null) {
@@ -207,7 +209,7 @@ public class Utilities {
             if (csNode.getInfoTopicNode() != null) {
                 final CSInfoNodeWrapper csNodeInfo = csNode.getInfoTopicNode();
                 final TranslatedTopicWrapper pushedTopic = getTranslatedTopic(topicProvider, csNodeInfo.getTopicId(),
-                        csNodeInfo.getTopicRevision(), translatedCSNode);
+                        csNodeInfo.getTopicRevision(), translatedCSNode, latestTranslation);
 
                 // If a pushed topic was found then add it
                 if (pushedTopic != null) {
@@ -227,7 +229,7 @@ public class Utilities {
     }
 
     protected static TranslatedTopicWrapper getTranslatedTopic(final TopicProvider topicProvider, final Integer topicId,
-            final Integer topicRevision, final TranslatedCSNodeWrapper translatedCSNode) {
+            final Integer topicRevision, final TranslatedCSNodeWrapper translatedCSNode, boolean latestTranslation) {
         final TopicWrapper topic = topicProvider.getTopic(topicId, topicRevision);
 
         // Try and see if it was pushed with a condition
@@ -237,7 +239,13 @@ public class Utilities {
             pushedTopic = EntityUtilities.returnPushedTranslatedTopic(topic);
         }
 
-        return pushedTopic;
+        // If the topic revision is null and we aren't getting the latest translations, then find the translation before the one that
+        // was found
+        if (latestTranslation || topicRevision != null) {
+            return pushedTopic;
+        } else {
+            return getTranslatedTopic(topicProvider, topicId, pushedTopic.getTopicRevision() - 1, translatedCSNode, true);
+        }
     }
 
     /**
@@ -247,12 +255,17 @@ public class Utilities {
      * @return True if the language exists on the server otherwise false.
      */
     public static boolean validateLanguages(final ServerSettingsWrapper serverSettings, final String[] langs) {
-        final List<String> locales = serverSettings.getLocales();
+        final CollectionWrapper<LocaleWrapper> locales = serverSettings.getLocales();
+
+        final List<String> localeValues = new ArrayList<String>();
+        for (final LocaleWrapper locale : locales.getItems()) {
+            localeValues.add(locale.getValue());
+        }
 
         boolean valid = true;
         for (final String lang : langs) {
-            if (!locales.contains(lang)) {
-                log.error("\"%s\" is not a valid language. The valid languages are: %s", lang, CollectionUtilities.toSeperatedString(locales, " "));
+            if (!localeValues.contains(lang)) {
+                log.error("\"%s\" is not a valid language. The valid languages are: %s", lang, CollectionUtilities.toSeperatedString(localeValues, " "));
                 valid = false;
             }
         }

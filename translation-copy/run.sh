@@ -20,4 +20,4 @@ java -Dpressgang.zanataServer=${ZANATA_SERVER} \
      -Dpressgang.zanataProjectVersion=${PROJECT_VERSION} \
      -Dpressgang.restServer=${REST_SERVER} \
      -Dpressgang.minZanataCallInterval=${MIN_ZANATA_CALL_INTERVAL} \
-     -jar ${DIR}/target/translation-copy-1.5-SNAPSHOT.jar "$@"
+     -jar ${DIR}/target/translation-copy-1.9.jar "$@"

@@ -21,8 +21,10 @@ import org.jboss.pressgang.ccms.provider.ServerSettingsProvider;
 import org.jboss.pressgang.ccms.provider.exception.NotFoundException;
 import org.jboss.pressgang.ccms.utils.common.CollectionUtilities;
 import org.jboss.pressgang.ccms.utils.constants.CommonConstants;
+import org.jboss.pressgang.ccms.wrapper.LocaleWrapper;
 import org.jboss.pressgang.ccms.wrapper.ServerSettingsWrapper;
 import org.jboss.pressgang.ccms.wrapper.TranslatedContentSpecWrapper;
+import org.jboss.pressgang.ccms.wrapper.collection.CollectionWrapper;
 import org.jboss.resteasy.client.ClientResponse;
 import org.jboss.resteasy.spi.UnauthorizedException;
 import org.slf4j.Logger;
@@ -102,7 +104,9 @@ public class TranslationCopyTool implements IVariableArity {
                 try {
                     final TranslatedContentSpecWrapper translatedContentSpec = EntityUtilities.getClosestTranslatedContentSpecById(
                             providerFactory, contentSpecId, pushedContentSpec.getContentSpecRevision() - 1);
-                    oldContentSpecs.add(translatedContentSpec.getZanataId());
+                    if (translatedContentSpec != null) {
+                        oldContentSpecs.add(translatedContentSpec.getZanataId());
+                    }
                 } catch (NotFoundException e) {
                     log.error("The content spec has no previous translations available");
                     System.exit(-1);
@@ -111,10 +115,10 @@ public class TranslationCopyTool implements IVariableArity {
 
             // Get the Zanata Ids we need to push to
             log.info("Getting the Zanata document ids for content spec {}", pushedContentSpec.getZanataId());
-            final Set<String> zanataIds = Utilities.getZanataIds(providerFactory, pushedContentSpec);
+            final Set<String> zanataIds = Utilities.getZanataIds(providerFactory, pushedContentSpec, true);
 
             // Collect all the old topic ids
-            final Map<String, String> mappedZanataIds = collectOldIds(zanataIds);
+            final Map<String, String> mappedZanataIds = collectOldIds(zanataIds, pushedContentSpec);
 
             // Copy the translations
             copyTranslations(mappedZanataIds, localeIds);
@@ -178,20 +182,26 @@ public class TranslationCopyTool implements IVariableArity {
         // If the locales are empty then use all the locales configured on the server
         if (locales == null) {
             final ServerSettingsWrapper serverSettings = providerFactory.getProvider(ServerSettingsProvider.class).getServerSettings();
+            this.localeIds = initLocales(serverSettings.getLocales());
+        } else {
+            // Setup the zanata locale ids
+            for (final String locale : locales.split("\\s*,\\s*")) {
+                localeIds.add(LocaleId.fromJavaName(locale));
+            }
+        }
+    }
 
-            final List<String> locales = new ArrayList<String>(serverSettings.getLocales());
+    private List<LocaleId> initLocales(final CollectionWrapper<LocaleWrapper> locales) {
+        final List<LocaleId> retValue = new ArrayList<LocaleId>();
 
-            // Ignore the en-US locale
-            locales.remove("en-US");
-            locales.remove("en-US");
-
-            this.locales = CollectionUtilities.toSeperatedString(locales, ",");
+        // Get the Locales
+        for (final LocaleWrapper locale : locales.getItems()) {
+            if (!locale.getValue().equals("en-US")) {
+                retValue.add(LocaleId.fromJavaName(locale.getTranslationValue()));
+            }
         }
 
-        // Setup the zanata locale ids
-        for (final String locale : locales.split("\\s*,\\s*")) {
-            localeIds.add(LocaleId.fromJavaName(locale));
-        }
+        return retValue;
     }
 
     /**
@@ -217,26 +227,33 @@ public class TranslationCopyTool implements IVariableArity {
      * @param contentSpecZanataIds The list of new content spec Zanata Document Ids.
      * @return A map of old zanata document ids to new document ids.
      */
-    protected Map<String, String> collectOldIds(final Set<String> contentSpecZanataIds) {
+    protected Map<String, String> collectOldIds(final Set<String> contentSpecZanataIds,
+            final TranslatedContentSpecWrapper pushedContentSpec) {
         final Map<String, String> retValue = new LinkedHashMap<String, String>();
 
         // 1. Get all the Zanata Ids for the specified old content specs
         final Set<String> oldZanataIds = new LinkedHashSet<String>();
-        for (final String oldContentSpecId : oldContentSpecs) {
-            // Get the content spec id/revision
-            final String[] zanataNameSplit = oldContentSpecId.replace("CS", "").split("-");
-            final Integer contentSpecId = Integer.parseInt(zanataNameSplit[0]);
-            final Integer contentSpecRevision = zanataNameSplit.length > 1 ? Integer.parseInt(zanataNameSplit[1]) : null;
+        if (!oldContentSpecs.isEmpty()) {
+            for (final String oldContentSpecId : oldContentSpecs) {
+                // Get the content spec id/revision
+                final String[] zanataNameSplit = oldContentSpecId.replace("CS", "").split("-");
+                final Integer contentSpecId = Integer.parseInt(zanataNameSplit[0]);
+                final Integer contentSpecRevision = zanataNameSplit.length > 1 ? Integer.parseInt(zanataNameSplit[1]) : null;
 
-            final TranslatedContentSpecWrapper pushedContentSpec = EntityUtilities.getClosestTranslatedContentSpecById(providerFactory,
-                    contentSpecId, contentSpecRevision);
+                final TranslatedContentSpecWrapper translatedContentSpec = EntityUtilities.getClosestTranslatedContentSpecById(providerFactory,
+                        contentSpecId, contentSpecRevision);
 
-            if (pushedContentSpec != null) {
-                log.info("Getting the Zanata document ids for content spec {}", pushedContentSpec.getZanataId());
-                oldZanataIds.addAll(Utilities.getZanataIds(providerFactory, pushedContentSpec));
-            } else {
-                log.error("Skipping content spec {} as their are no translations available", contentSpecId);
+                if (translatedContentSpec != null) {
+                    log.info("Getting the Zanata document ids for content spec {}", translatedContentSpec.getZanataId());
+                    oldZanataIds.addAll(Utilities.getZanataIds(providerFactory, translatedContentSpec, false));
+                } else {
+                    log.error("Skipping content spec {} as their are no translations available", contentSpecId);
+                }
             }
+        } else {
+            // This will happen when a spec isn't frozen
+            log.info("Getting the old Zanata document ids for content spec {}", pushedContentSpec.getZanataId());
+            oldZanataIds.addAll(Utilities.getZanataIds(providerFactory, pushedContentSpec, false));
         }
 
         // 2. Break the Zanata Ids up based on their id
@@ -260,9 +277,13 @@ public class TranslationCopyTool implements IVariableArity {
             if (oldZanataIdMap.containsKey(id)) {
                 final LinkedList<String> oldZanataIdsForId = new LinkedList<String>(oldZanataIdMap.get(id));
                 if (id.equals("CS")) {
-                    // For content specs copy from all sources
+                    // For content specs copy from all sources, unless it is itself
                     for (final String oldZanataId : oldZanataIdsForId) {
-                        retValue.put(oldZanataId, newZanataId);
+                        if (!newZanataId.equals(oldZanataId)) {
+                            retValue.put(oldZanataId, newZanataId);
+                        } else {
+                            log.warn("Skipping {} as there is no previous translations", newZanataId);
+                        }
                     }
                 } else {
                     // The topic might not have changed so check that the zanata ids are different
